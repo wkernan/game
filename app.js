@@ -13,51 +13,69 @@ serv.listen(app.get('port'), () => {
 });
 
 const SOCKET_LIST = {};
-const PLAYER_LIST = {};
 
-const Player = id => {
+const Entity = () => {
 	const self = {
 		x: 250,
-		y:250,
-		id,
-		number: `${Math.floor(10 * Math.random())}`,
-		pressingLeft: false,
-		pressingRight: false,
-		pressingUp: false,
-		pressingDown: false,
-		maxSpd: 10
+		y: 250,
+		spdX: 0,
+		spdY: 0,
+		id:""
+	}
+
+	self.update = () => {
+		self.updatePosition();
 	}
 
 	self.updatePosition = () => {
-		if(self.pressingRight) 
-			self.x += self.maxSpd;
-		if(self.pressingLeft) 
-			self.x -= self.maxSpd;
-		if(self.pressingUp)
-			self.y -= self.maxSpd;
-		if(self.pressingDown)
-			self.y += self.maxSpd;
+		self.x += self.spdX;
+		self.y += self.spdY;
+	}
+	return self;
+}
+
+const Player = id => {
+	const self = Entity();
+	self.id = id;
+	self.number = `${Math.floor(10 * Math.random())}`;
+	self.pressingLeft = false;
+	self.pressingRight = false;
+	self.pressingUp = false;
+	self.pressingDown = false;
+	self.maxSpd = 10;
+
+	const super_update = self.update;
+	self.update = () => {
+		self.updateSpd();
+		super_update();
 	}
 
+	self.updateSpd = () => {
+		if(self.pressingRight)
+			self.spdX = self.maxSpd;
+		else if(self.pressingLeft)
+			self.spdX = -self.maxSpd;
+		else
+			self.spdX = 0;
+
+		if(self.pressingDown)
+			self.spdY = self.maxSpd;
+		else if(self.pressingUp)
+			self.spdY = -self.maxSpd;
+		else
+			self.spdY = 0;
+	}
+	Player.list[id] = self;
 	return self;
 };
 
-const io = require('socket.io')(serv, {});
-io.sockets.on('connection', socket => {
-	socket.id = Math.random();
-	socket.x = 0;
-	socket.y = 0;
-	socket.number = "" + Math.floor(10 * Math.random());
-	SOCKET_LIST[socket.id] = socket;
-	
+Player.list = {};
+Player.onConnect = socket => {
 	const player = Player(socket.id);
-	PLAYER_LIST[socket.id] = player;
-
-	socket.on('disconnect', () => {
-		delete SOCKET_LIST[socket.id];
-		delete PLAYER_LIST[socket.id];
+	socket.broadcast.emit('serverMsg', {
+		msg: `Player ${player.number} has joined!`,
+		number: player.number
 	});
-
 	socket.on('keyPress', data => {
 		if(data.inputId === 'right')
 			player.pressingRight = data.state;
@@ -67,28 +85,78 @@ io.sockets.on('connection', socket => {
 			player.pressingDown = data.state;
 		else if(data.inputId === 'up')
 			player.pressingUp = data.state;
-	})
-
-	socket.emit('serverMsg', {
-		msg: `Player ${socket.id} has joined!`
 	});
-});
+};
 
-setInterval(() => {
+Player.onDisconnect = socket => {
+	delete Player.list[socket.id];
+};
+
+Player.update = () => {
 	const pack = [];
-	for(const i in PLAYER_LIST) {
-		const player = PLAYER_LIST[i];
-		player.updatePosition();
+	for(const i in Player.list) {
+		const player = Player.list[i];
+		player.update();
 		pack.push({
 			x: player.x,
 			y: player.y,
 			number: player.number
 		});
-	};
+	}
+	return pack;
+}
+
+const Bullet = angle => {
+	const self = Entity();
+	self.id = Math.random();
+	self.spdX = Math.cos(angle/180*Math.PI) * 10;
+	self.spdY = Math.sin(angle/180*Math.PI) * 10;
+
+	self.timer = 0;
+	self.toRemove = false;
+	const super_update = self.update;
+	self.update = () => {
+		if(self.timer++ > 100)
+			self.toRemove = true;
+		super_update();
+	}
+
+	Bullet.list[self.id] = self;
+	return self;
+}
+Bullet.list = {};
+
+Bullet.update = () => {
+	const pack = [];
+	for(const i in Bullet.list) {
+		const player = Bullet.list[i];
+		player.update();
+		pack.push({
+			x: player.x,
+			y: player.y,
+		});
+	}
+	return pack;
+}
+
+const io = require('socket.io')(serv, {});
+io.sockets.on('connection', socket => {
+	socket.id = Math.random();
+	SOCKET_LIST[socket.id] = socket;
+
+	Player.onConnect(socket);
+
+	socket.on('disconnect', () => {
+		delete SOCKET_LIST[socket.id];
+		Player.onDisconnect(socket);
+	});
+});
+
+setInterval(() => {
+	var pack = Player.update();
 
 	for(const i in SOCKET_LIST) {
 		const socket = SOCKET_LIST[i];
 		socket.emit('newPositions', pack);
 	}
-
 }, 1000/25);
