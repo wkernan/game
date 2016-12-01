@@ -127,13 +127,16 @@ const Bullet = angle => {
 Bullet.list = {};
 
 Bullet.update = () => {
+	if(Math.random() < 0.1) {
+		Bullet(Math.random()*360);
+	}
 	const pack = [];
 	for(const i in Bullet.list) {
-		const player = Bullet.list[i];
-		player.update();
+		const bullet = Bullet.list[i];
+		bullet.update();
 		pack.push({
-			x: player.x,
-			y: player.y,
+			x: bullet.x,
+			y: bullet.y
 		});
 	}
 	return pack;
@@ -153,7 +156,10 @@ io.sockets.on('connection', socket => {
 });
 
 setInterval(() => {
-	var pack = Player.update();
+	const pack = {
+		player: Player.update(),
+		bullet: Bullet.update()
+	}
 
 	for(const i in SOCKET_LIST) {
 		const socket = SOCKET_LIST[i];
