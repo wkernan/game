@@ -134,6 +134,8 @@ Bullet.update = () => {
 	for(const i in Bullet.list) {
 		const bullet = Bullet.list[i];
 		bullet.update();
+		if(bullet.toRemove === true)
+			delete Bullet.list[i];
 		pack.push({
 			x: bullet.x,
 			y: bullet.y
@@ -141,6 +143,8 @@ Bullet.update = () => {
 	}
 	return pack;
 }
+
+const DEBUG = true;
 
 const io = require('socket.io')(serv, {});
 io.sockets.on('connection', socket => {
@@ -153,6 +157,21 @@ io.sockets.on('connection', socket => {
 		delete SOCKET_LIST[socket.id];
 		Player.onDisconnect(socket);
 	});
+
+	socket.on('sendMsgToServer', data => {
+		const playerName = ("" + socket.id).slice(2,7);
+		for(const i in SOCKET_LIST) {
+			SOCKET_LIST[i].emit('addChat', playerName + ': ' + data);
+		}
+	})
+
+	socket.on('evalServer', data => {
+		if(!DEBUG)
+			return;
+
+		const res = eval(data);
+		socket.emit('evalAnswer', res);
+	})
 });
 
 setInterval(() => {
