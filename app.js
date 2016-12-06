@@ -180,22 +180,6 @@ Bullet.update = () => {
 
 const DEBUG = true;
 
-const USERS = {
-	"bob": "asd",
-	"bob2": "bob",
-	"bob3": "ttt"
-}
-
-const isValidPassword = (data, cb) => {
-	setTimeout(() => {
-		cb(USERS[data.username] === data.password);
-	}, 10);
-}
-
-// User.findOne({'username': data.username}, (err, res) => {
-
-// })
-
 const isUsernameTaken = (data, cb) => {
 	User.findOne({'username': data.username}, (err, res) => {
 		if(err)
