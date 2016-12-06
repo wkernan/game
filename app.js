@@ -1,6 +1,12 @@
 import express from 'express';
 const app = express();
 const serv = require('http').Server(app);
+const mongoose = require('mongoose');
+var db = require('./config/database');
+var User = require('./models/User');
+const bcrypt = require('bcryptjs');
+
+mongoose.connect(db.url);
 
 app.get('/', (req,res) => {
 	res.sendFile(`${__dirname}/client/index.html`);
@@ -180,16 +186,33 @@ const USERS = {
 	"bob3": "ttt"
 }
 
-const isValidPassword = data => {
-	return USERS[data.username] === data.password;
+const isValidPassword = (data, cb) => {
+	setTimeout(() => {
+		cb(USERS[data.username] === data.password);
+	}, 10);
 }
 
-const isUsernameTaken = data => {
-	return USERS[data.username];
+// User.findOne({'username': data.username}, (err, res) => {
+
+// })
+
+const isUsernameTaken = (data, cb) => {
+	User.findOne({'username': data.username}, (err, res) => {
+		if(err)
+			cb(err);
+		if(res)
+			cb(true);
+		else
+		cb(false);
+	});
 }
 
-const addUser = data => {
-	USERS[data.username] = data.password;
+const addUser = (data, cb) => {
+	const user = new User();
+	user.username = data.username;
+	user.password = user.generateHash(data.password);
+	user.save();
+	cb();
 }
 
 const io = require('socket.io')(serv, {});
@@ -198,21 +221,30 @@ io.sockets.on('connection', socket => {
 	SOCKET_LIST[socket.id] = socket;
 
 	socket.on('signIn', data => {
-		if(isValidPassword(data)) {
-			Player.onConnect(socket);
-			socket.emit('signInResponse', {success: true});
-		} else {
-			socket.emit('signInResponse', {success: false});
-		}
+		User.findOne({'username': data.username}, (err, res) => {
+			if(err)
+				return err
+			if(!res)
+				return socket.emit('signInResponse', {success: false});
+			if(!res.validPassword(data.password)) 
+				return socket.emit('signInResponse', {success: false});
+			else {
+				Player.onConnect(socket);
+				socket.emit('signInResponse', {success: true});
+			}
+		});
 	});	
 
 	socket.on('signUp', data => {
-		if(isUsernameTaken(data)) {
-			socket.emit('signUpResponse', {success: false});
-		} else {
-			addUser(data);
-			socket.emit('signUpResponse', {success: true});
-		}
+		isUsernameTaken(data, res => {
+			if(res) {
+				socket.emit('signUpResponse', {success: false});
+			} else {
+				addUser(data, () => {
+					socket.emit('signUpResponse', {success: true});
+				});
+			}
+		});
 	});	
 
 	socket.on('disconnect', () => {
