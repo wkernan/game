@@ -55,6 +55,9 @@ const Player = id => {
 	self.pressingAttack = false;
 	self.mouseAngle = 0;
 	self.maxSpd = 10;
+	self.hp = 10;
+	self.hpMax = 10;
+	self.score = 0;
 
 	const super_update = self.update;
 	self.update = () => {
@@ -62,9 +65,7 @@ const Player = id => {
 		super_update();
 
 		if(self.pressingAttack) {
-			for(var i=0;i<6;i++) {
-				self.shootBullet(i * 10 + self.mouseAngle);
-			}
+			self.shootBullet(self.mouseAngle);
 		}
 	}
 
@@ -89,17 +90,39 @@ const Player = id => {
 		else
 			self.spdY = 0;
 	}
+
+	self.getInitPack = () => {
+		return {
+			id: self.id,
+			x: self.x,
+			y: self.y,
+			number: self.number,
+			hp: self.hp,
+			hpMax: self.hpMax,
+			score: self.score
+		}
+	}
+
+	self.getUpdatePack = () => {
+		return {
+			id: self.id,
+			x: self.x,
+			y: self.y,
+			hp: self.hp,
+			score: self.score
+		}
+	}
+
 	Player.list[id] = self;
+
+	initPack.player.push(self.getInitPack());
 	return self;
 };
 
 Player.list = {};
+
 Player.onConnect = socket => {
 	const player = Player(socket.id);
-	socket.broadcast.emit('serverMsg', {
-		msg: `Player ${player.number} has joined!`,
-		number: player.number
-	});
 	socket.on('keyPress', data => {
 		if(data.inputId === 'right')
 			player.pressingRight = data.state;
@@ -114,10 +137,23 @@ Player.onConnect = socket => {
 		else if(data.inputId === 'mouseAngle')
 			player.mouseAngle = data.state;
 	});
+
+	socket.emit('init', {
+		player: Player.getAllInitPack(),
+		bullet: Bullet.getAllInitPack()
+	})
 };
+
+Player.getAllInitPack = () => {
+	const players = [];
+	for(const i in Player.list)
+		players.push(Player.list[i].getInitPack());
+	return players;
+}
 
 Player.onDisconnect = socket => {
 	delete Player.list[socket.id];
+	removePack.player.push(socket.id);
 };
 
 Player.update = () => {
@@ -125,11 +161,7 @@ Player.update = () => {
 	for(const i in Player.list) {
 		const player = Player.list[i];
 		player.update();
-		pack.push({
-			x: player.x,
-			y: player.y,
-			number: player.number
-		});
+		pack.push(player.getUpdatePack());
 	}
 	return pack;
 }
@@ -150,16 +182,42 @@ const Bullet = (parent, angle) => {
 
 		for(const i in Player.list) {
 			const p = Player.list[i];
-			if(self.getDistance(p)	 < 32 && self.parent !== p.id) {
-				// handle collision hp--;
+			if(self.getDistance(p) < 32 && self.parent !== p.id) {
+				p.hp -= 1;
+				var shooter = Player.list[self.parent];
+				if(p.hp <= 0) {
+					if(shooter)
+						shooter.score += 1;
+					p.hp = p.hpMax;
+					p.x = Math.random() * 500;
+					p.y = Math.random() * 500;
+				}
 				self.toRemove = true;
 			}
 		}
 	}
 
+	self.getInitPack = () => {
+		return {
+			id: self.id,
+			x: self.x,
+			y: self.y
+		}
+	}
+
+	self.getUpdatePack = () => {
+		return {
+			id: self.id,
+			x: self.x,
+			y: self.y
+		}
+	}
+
 	Bullet.list[self.id] = self;
+	initPack.bullet.push(self.getInitPack());
 	return self;
 }
+
 Bullet.list = {};
 
 Bullet.update = () => {
@@ -167,15 +225,22 @@ Bullet.update = () => {
 	for(const i in Bullet.list) {
 		const bullet = Bullet.list[i];
 		bullet.update();
-		if(bullet.toRemove)
+		if(bullet.toRemove) {
 			delete Bullet.list[i];
+			removePack.bullet.push(bullet.id);
+		} 
 		else 
-			pack.push({
-				x: bullet.x,
-				y: bullet.y
-			});
+			pack.push(bullet.getUpdatePack());
 	}
 	return pack;
+}
+
+Bullet.getAllInitPack = () => {
+	const bullets = [];
+	for(const i in Bullet.list) {
+		bullets.push(Bullet.list[i].getInitPack());
+	}
+	return bullets;
 }
 
 const DEBUG = true;
@@ -252,6 +317,9 @@ io.sockets.on('connection', socket => {
 	})
 });
 
+const initPack = {player:[], bullet:[]};
+const removePack = {player:[], bullet:[]};
+
 setInterval(() => {
 	const pack = {
 		player: Player.update(),
@@ -260,6 +328,12 @@ setInterval(() => {
 
 	for(const i in SOCKET_LIST) {
 		const socket = SOCKET_LIST[i];
-		socket.emit('newPositions', pack);
+		socket.emit('init', initPack);
+		socket.emit('update', pack);
+		socket.emit('remove', removePack);
 	}
+	initPack.player = [];
+	initPack.bullet = [];
+	removePack.player = [];
+	removePack.bullet = [];
 }, 1000/25);
